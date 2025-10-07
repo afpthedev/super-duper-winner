@@ -1,8 +1,9 @@
 import json
-import json
+import math
 import logging
+import re
 from datetime import datetime
-from typing import List, Dict, Optional, Any
+from typing import Any, Dict, List, Optional, Set, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, or_, desc
@@ -242,60 +243,206 @@ class DataService:
         self.stats_repo = PlayerStatsRepository()
         self.match_log_repo = MatchLogRepository()
         self.scraping_log_repo = ScrapingLogRepository()
-    
+
+    @staticmethod
+    def _normalise_string(value: Any) -> str:
+        if value is None:
+            return ""
+        return str(value).strip()
+
+    @staticmethod
+    def _coerce_int(value: Any, default: Optional[int] = 0) -> Optional[int]:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            if math.isnan(value):
+                return default
+            return int(value)
+        if isinstance(value, str):
+            cleaned = value.replace(",", "").strip()
+            if not cleaned:
+                return default
+            try:
+                numeric_value = float(cleaned)
+            except ValueError:
+                return default
+            if math.isnan(numeric_value):
+                return default
+            return int(numeric_value)
+        return default
+
+    @staticmethod
+    def _coerce_float(value: Any, default: float = 0.0) -> float:
+        if value is None:
+            return default
+        if isinstance(value, (int, float)):
+            if isinstance(value, float) and math.isnan(value):
+                return default
+            return float(value)
+        if isinstance(value, str):
+            cleaned = value.replace(",", "").strip()
+            if not cleaned:
+                return default
+            try:
+                numeric_value = float(cleaned)
+            except ValueError:
+                return default
+            if math.isnan(numeric_value):
+                return default
+            return numeric_value
+        return default
+
+    @staticmethod
+    def _replace_nan(value: Any) -> Any:
+        if isinstance(value, float) and math.isnan(value):
+            return None
+        if isinstance(value, dict):
+            return {key: DataService._replace_nan(val) for key, val in value.items()}
+        if isinstance(value, list):
+            return [DataService._replace_nan(item) for item in value]
+        return value
+
+    @staticmethod
+    def _parse_season_bounds(season_name: str) -> Tuple[int, int]:
+        cleaned = DataService._normalise_string(season_name)
+        match = re.search(r"(\d{4})\s*[-–]\s*(\d{4})", cleaned)
+        if match:
+            return int(match.group(1)), int(match.group(2))
+        single_match = re.search(r"(\d{4})", cleaned)
+        if single_match:
+            start_year = int(single_match.group(1))
+            return start_year, start_year + 1
+        current_year = datetime.utcnow().year
+        return current_year, current_year + 1
+
     def save_player_data(self, player_data_list: List[Dict]) -> Dict[str, int]:
         """Oyuncu verilerini toplu olarak kaydeder."""
         stats = {"teams": 0, "players": 0, "stats": 0, "errors": 0}
-        
+        processed_team_ids: Set[int] = set()
+        processed_player_ids: Set[int] = set()
+
         with get_db_session_context() as session:
             for player_data in player_data_list:
                 try:
-                    # Takımı kaydet/getir
+                    team_name = self._normalise_string(player_data.get("team_name"))
+                    if not team_name:
+                        logger.warning("Takım adı bulunamadı, kayıt atlandı")
+                        stats["errors"] += 1
+                        continue
+
                     team = self.team_repo.get_or_create(
                         session,
-                        name=player_data.get("team_name", ""),
-                        fbref_url=player_data.get("team_url", "")
+                        name=team_name,
+                        fbref_url=self._normalise_string(player_data.get("team_url")) or None
                     )
-                    stats["teams"] += 1
-                    
-                    # Sezonu kaydet/getir
-                    season_name = player_data.get("season", "2024-2025")
-                    start_year = int(season_name.split("-")[0])
-                    end_year = int(season_name.split("-")[1])
+                    if team.id not in processed_team_ids:
+                        processed_team_ids.add(team.id)
+                        stats["teams"] += 1
+
+                    season_name = self._normalise_string(player_data.get("season")) or "2024-2025"
+                    start_year, end_year = self._parse_season_bounds(season_name)
                     season = self.season_repo.get_or_create(
                         session, season_name, start_year, end_year
                     )
-                    
-                    # Oyuncuyu kaydet/getir
+
+                    player_name = self._normalise_string(player_data.get("player_name"))
+                    if not player_name:
+                        logger.warning("Oyuncu adı bulunamadı, kayıt atlandı (takım: %s)", team_name)
+                        stats["errors"] += 1
+                        continue
+
+                    player_position = self._normalise_string(player_data.get("position")) or None
+                    player_nationality = self._normalise_string(player_data.get("nationality")) or None
+                    player_fbref_url = self._normalise_string(player_data.get("player_url")) or None
+                    player_age = self._coerce_int(player_data.get("age"), default=None)
+
                     player = self.player_repo.get_or_create(
                         session,
-                        name=player_data.get("player_name", ""),
+                        name=player_name,
                         team_id=team.id,
-                        position=player_data.get("position", ""),
-                        age=player_data.get("age")
+                        position=player_position,
+                        age=player_age,
+                        nationality=player_nationality,
+                        fbref_url=player_fbref_url
                     )
-                    stats["players"] += 1
-                    
-                    # İstatistikleri kaydet/güncelle
-                    player_stats = self.stats_repo.get_or_create(
-                        session,
-                        player_id=player.id,
-                        season_id=season.id,
-                        team_id=team.id,
-                        matches_played=player_data.get("matches_played", 0),
-                        starts=player_data.get("starts", 0),
-                        minutes_played=player_data.get("minutes", 0),
-                        goals=player_data.get("goals", 0),
-                        assists=player_data.get("assists", 0),
-                        raw_data=json.dumps(player_data)
-                    )
+                    if player.id not in processed_player_ids:
+                        processed_player_ids.add(player.id)
+                        stats["players"] += 1
+
+                    player_updates: Dict[str, Any] = {}
+                    if player_position and player.position != player_position:
+                        player_updates["position"] = player_position
+                    if player_nationality and player.nationality != player_nationality:
+                        player_updates["nationality"] = player_nationality
+                    if player_age is not None and player.age != player_age:
+                        player_updates["age"] = player_age
+                    if player_fbref_url and player.fbref_url != player_fbref_url:
+                        player_updates["fbref_url"] = player_fbref_url
+
+                    if player_updates:
+                        self.player_repo.update(session, player.id, **player_updates)
+
+                    matches_played = self._coerce_int(player_data.get("matches_played"), default=0) or 0
+                    starts = self._coerce_int(player_data.get("starts"), default=0) or 0
+                    minutes_source = player_data.get("minutes_played", player_data.get("minutes"))
+                    minutes_played = self._coerce_int(minutes_source, default=0) or 0
+                    goals = self._coerce_int(player_data.get("goals"), default=0) or 0
+                    assists = self._coerce_int(player_data.get("assists"), default=0) or 0
+                    penalties_scored = self._coerce_int(player_data.get("penalties_scored"), default=0) or 0
+                    penalties_attempted = self._coerce_int(player_data.get("penalties_attempted"), default=0) or 0
+                    yellow_cards = self._coerce_int(player_data.get("yellow_cards"), default=0) or 0
+                    red_cards = self._coerce_int(player_data.get("red_cards"), default=0) or 0
+                    expected_goals = self._coerce_float(player_data.get("expected_goals"), default=0.0)
+                    expected_assists = self._coerce_float(player_data.get("expected_assists"), default=0.0)
+                    progressive_carries = self._coerce_int(player_data.get("progressive_carries"), default=0) or 0
+                    progressive_passes = self._coerce_int(player_data.get("progressive_passes"), default=0) or 0
+
+                    raw_payload = player_data.get("raw_data") or player_data
+                    raw_payload = self._replace_nan(raw_payload)
+                    raw_data_json = json.dumps(raw_payload, ensure_ascii=False)
+
+                    existing_stats = self.stats_repo.get_by_player_and_season(session, player.id, season.id)
+                    stats_values = {
+                        "team_id": team.id,
+                        "matches_played": matches_played,
+                        "starts": starts,
+                        "minutes_played": minutes_played,
+                        "goals": goals,
+                        "assists": assists,
+                        "penalties_scored": penalties_scored,
+                        "penalties_attempted": penalties_attempted,
+                        "yellow_cards": yellow_cards,
+                        "red_cards": red_cards,
+                        "expected_goals": expected_goals,
+                        "expected_assists": expected_assists,
+                        "progressive_carries": progressive_carries,
+                        "progressive_passes": progressive_passes,
+                        "raw_data": raw_data_json,
+                    }
+
+                    if existing_stats:
+                        for key, value in stats_values.items():
+                            setattr(existing_stats, key, value)
+                        existing_stats.updated_at = datetime.utcnow()
+                    else:
+                        self.stats_repo.create(
+                            session,
+                            player_id=player.id,
+                            season_id=season.id,
+                            **stats_values
+                        )
+
                     stats["stats"] += 1
-                    
+
                 except Exception as e:
                     logger.error(f"Oyuncu verisi kaydedilemedi: {str(e)}")
                     stats["errors"] += 1
                     continue
-        
+
         logger.info(f"Veri kaydetme tamamlandı: {stats}")
         return stats
     
