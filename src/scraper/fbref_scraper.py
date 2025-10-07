@@ -8,7 +8,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Iterable
 import warnings
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -60,11 +60,60 @@ class FBRefScraper:
         if self.driver:
             self.driver.quit()
             self.driver = None
-    
+
+    @staticmethod
+    def _clean_column_names(columns: Iterable) -> List[str]:
+        """FBRef tablolarındaki çok seviyeli kolon adlarını sadeleştirir."""
+        cleaned_columns: List[str] = []
+        seen: Dict[str, int] = {}
+
+        for column in columns:
+            if isinstance(column, tuple):
+                parts = [
+                    str(part).strip()
+                    for part in column
+                    if part and not str(part).startswith("Unnamed")
+                ]
+                name = parts[-1] if parts else str(column[-1]).strip()
+            else:
+                name = str(column).strip()
+
+            if not name:
+                name = f"column_{len(cleaned_columns)}"
+
+            if name in seen:
+                seen[name] += 1
+                name = f"{name}_{seen[name]}"
+            else:
+                seen[name] = 0
+
+            cleaned_columns.append(name)
+
+        return cleaned_columns
+
+    @staticmethod
+    def _normalise_squad_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
+        """Kadro tablosunu temizler ve standart kolon adlarına dönüştürür."""
+        df = dataframe.copy()
+
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = FBRefScraper._clean_column_names(df.columns.tolist())
+
+        df = df.loc[:, ~df.columns.duplicated()]
+
+        if "Player" in df.columns:
+            player_series = df["Player"]
+            df = df[player_series.notna()].copy()
+            df.loc[:, "Player"] = df["Player"].astype(str).str.strip()
+            df = df[(df["Player"] != "") & (df["Player"].str.lower() != "nan")]
+            df = df[~df["Player"].str.lower().isin({"squad total", "squad total 2"})]
+
+        return df
+
     def get_team_squad_data(self, team_url: str) -> Optional[pd.DataFrame]:
         """
         Takım kadro verilerini çeker.
-        
+
         Args:
             team_url: Takım sayfasının URL'si
             
@@ -90,14 +139,11 @@ class FBRefScraper:
             
             # Pandas ile tabloyu oku
             df = pd.read_html(str(squad_table))[0]
-            
-            # Çok seviyeli sütun başlıklarını düzelt
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = ['_'.join(col).strip() for col in df.columns.values]
-            
+            df = self._normalise_squad_dataframe(df)
+
             logger.info(f"Kadro verileri başarıyla çekildi. {len(df)} oyuncu bulundu.")
             time.sleep(self.delay)
-            
+
             return df
             
         except Exception as e:
