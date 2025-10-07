@@ -1,5 +1,4 @@
 import json
-import json
 import logging
 from datetime import datetime
 from typing import List, Dict, Optional, Any
@@ -99,6 +98,15 @@ class PlayerRepository(BaseRepository):
     
     def get_or_create(self, session: Session, name: str, team_id: int, **kwargs) -> Player:
         """Oyuncuyu getirir, yoksa oluşturur."""
+        if 'age' in kwargs:
+            if kwargs['age'] == '' or kwargs['age'] is None:
+                kwargs['age'] = None
+            else:
+                try:
+                    kwargs['age'] = int(kwargs['age'])
+                except (ValueError, TypeError):
+                    kwargs['age'] = None
+
         player = self.get_by_name_and_team(session, name, team_id)
         if not player:
             player = self.create(session, name=name, team_id=team_id, **kwargs)
