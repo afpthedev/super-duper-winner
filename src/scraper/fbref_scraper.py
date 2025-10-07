@@ -142,7 +142,6 @@ class FBRefScraper:
             df = self._normalise_squad_dataframe(df)
 
             logger.info(f"Kadro verileri başarıyla çekildi. {len(df)} oyuncu bulundu.")
-            time.sleep(self.delay)
 
             return df
             
@@ -184,8 +183,7 @@ class FBRefScraper:
                 df.columns = ['_'.join(col).strip() for col in df.columns.values]
             
             logger.info(f"Maç logları başarıyla çekildi. {len(df)} maç bulundu.")
-            time.sleep(self.delay)
-            
+
             return df
             
         except Exception as e:
@@ -227,8 +225,6 @@ class FBRefScraper:
                     })
             
             logger.info(f"{len(teams)} takım bulundu.")
-            time.sleep(self.delay)
-            
             return teams
             
         except Exception as e:
@@ -273,6 +269,8 @@ class FBRefScraper:
                             "season": seasons[0] if seasons else "2024-2025"
                         }
                         
+                        logger.info(f"Scraped player data: {player_data}")
+
                         # Diğer istatistikleri de ekle
                         for col in squad_df.columns:
                             if col not in player_data:
