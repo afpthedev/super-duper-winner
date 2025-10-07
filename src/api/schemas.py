@@ -65,7 +65,27 @@ class TeamDetail(BaseModel):
     name: str
     league: Optional[str]
     country: Optional[str]
+    fbref_url: Optional[str]
     players: List[PlayerListItem]
+
+
+class TeamCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    league: Optional[str] = Field(default=None, max_length=100)
+    country: Optional[str] = Field(default=None, max_length=50)
+    fbref_url: Optional[str] = Field(default=None, max_length=500)
+
+
+class TeamUpdateRequest(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    league: Optional[str] = Field(default=None, max_length=100)
+    country: Optional[str] = Field(default=None, max_length=50)
+    fbref_url: Optional[str] = Field(default=None, max_length=500)
+
+
+class OperationResult(BaseModel):
+    success: bool
+    message: str
 
 
 class ScrapeRequest(BaseModel):

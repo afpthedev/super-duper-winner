@@ -16,6 +16,7 @@ from src.database.models import MatchLog, Player, PlayerStats, Season, Team
 from main import FBRefDataPipeline
 
 from .schemas import (
+    OperationResult,
     PlayerDetail,
     PlayerListItem,
     PlayerListResponse,
@@ -23,9 +24,11 @@ from .schemas import (
     ScrapeRequest,
     ScrapeResponse,
     SummaryStats,
+    TeamCreateRequest,
     TeamDetail,
     TeamListItem,
     TeamListResponse,
+    TeamUpdateRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -206,8 +209,111 @@ def get_team(team_id: int, session: Session = Depends(get_db_session_dependency)
         name=team.name,
         league=team.league,
         country=team.country,
+        fbref_url=team.fbref_url,
         players=player_items,
     )
+
+
+@app.post("/api/teams", response_model=TeamDetail, status_code=201)
+def create_team(
+    request: TeamCreateRequest,
+    session: Session = Depends(get_db_session_dependency),
+) -> TeamDetail:
+    """Create a new team record."""
+    existing = session.query(Team).filter(Team.name == request.name).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Bu isimde bir takım zaten mevcut")
+
+    team = Team(
+        name=request.name,
+        league=request.league,
+        country=request.country,
+        fbref_url=request.fbref_url,
+    )
+    session.add(team)
+    session.commit()
+    session.refresh(team)
+
+    return TeamDetail(
+        id=team.id,
+        name=team.name,
+        league=team.league,
+        country=team.country,
+        fbref_url=team.fbref_url,
+        players=[],
+    )
+
+
+@app.put("/api/teams/{team_id}", response_model=TeamDetail)
+def update_team(
+    team_id: int,
+    request: TeamUpdateRequest,
+    session: Session = Depends(get_db_session_dependency),
+) -> TeamDetail:
+    """Update an existing team."""
+    team = session.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Takım bulunamadı")
+
+    if request.name and request.name != team.name:
+        existing = session.query(Team).filter(Team.name == request.name).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Bu isimde bir takım zaten mevcut")
+
+    update_data = request.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        if value is not None:
+            setattr(team, field, value)
+
+    session.commit()
+    session.refresh(team)
+
+    players = (
+        session.query(Player)
+        .filter(Player.team_id == team.id)
+        .order_by(Player.name)
+        .all()
+    )
+    player_items = [
+        PlayerListItem(
+            id=player.id,
+            name=player.name,
+            position=player.position,
+            age=player.age,
+            team=team.name,
+            nationality=player.nationality,
+        )
+        for player in players
+    ]
+
+    return TeamDetail(
+        id=team.id,
+        name=team.name,
+        league=team.league,
+        country=team.country,
+        fbref_url=team.fbref_url,
+        players=player_items,
+    )
+
+
+@app.delete("/api/teams/{team_id}", response_model=OperationResult)
+def delete_team(
+    team_id: int,
+    session: Session = Depends(get_db_session_dependency),
+) -> OperationResult:
+    """Delete a team and detach its players."""
+    team = session.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Takım bulunamadı")
+
+    players = session.query(Player).filter(Player.team_id == team_id).all()
+    for player in players:
+        player.team_id = None
+
+    session.delete(team)
+    session.commit()
+
+    return OperationResult(success=True, message="Takım başarıyla silindi")
 
 
 def _run_scrape_job(request: ScrapeRequest) -> str:
