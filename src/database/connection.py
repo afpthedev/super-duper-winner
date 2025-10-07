@@ -1,46 +1,48 @@
 import os
 import logging
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.exc import SQLAlchemyError
 from contextlib import contextmanager
-from typing import Generator
+from typing import Generator, Iterator
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session, sessionmaker
 
 from .models import Base
+from src.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
     """Veritabanı bağlantı ve oturum yöneticisi"""
-    
-    def __init__(self, database_url: str = None):
-        """
-        DatabaseManager'ı başlatır.
-        
-        Args:
-            database_url: Veritabanı bağlantı URL'si
-        """
+
+    def __init__(self, database_url: str | None = None):
+        """DatabaseManager'ı başlatır."""
         if database_url is None:
             database_url = self._get_database_url()
-        
+
         self.database_url = database_url
         self.engine = None
-        self.SessionLocal = None
-        
+        self.SessionLocal: sessionmaker | None = None
+
         self._setup_database()
-    
+
     def _get_database_url(self) -> str:
-        """Çevre değişkenlerinden veritabanı URL'sini alır."""
-        db_host = os.getenv('DB_HOST', 'localhost')
-        db_port = os.getenv('DB_PORT', '5432')
-        db_name = os.getenv('DB_NAME', 'fbref_db')
-        db_user = os.getenv('DB_USER', 'postgres')
-        db_password = os.getenv('DB_PASSWORD', 'password')
-        
+        """Çevre değişkenlerinden veya ayarlardan veritabanı URL'sini alır."""
+        explicit_url = os.getenv("DATABASE_URL")
+        if explicit_url:
+            return explicit_url
+
+        settings = get_settings()
+
+        db_host = os.getenv("DB_HOST", settings.database.host)
+        db_port = os.getenv("DB_PORT", str(settings.database.port))
+        db_name = os.getenv("DB_NAME", settings.database.name)
+        db_user = os.getenv("DB_USER", settings.database.user)
+        db_password = os.getenv("DB_PASSWORD", settings.database.password)
+
         return f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
-    
-    def _setup_database(self):
+
+    def _setup_database(self) -> None:
         """Veritabanı bağlantısını ve oturum fabrikasını ayarlar."""
         try:
             self.engine = create_engine(
@@ -48,71 +50,73 @@ class DatabaseManager:
                 pool_size=10,
                 max_overflow=20,
                 pool_pre_ping=True,
-                echo=os.getenv('DB_ECHO', 'false').lower() == 'true'
+                echo=os.getenv("DB_ECHO", "false").lower() == "true",
+                future=True,
             )
-            
+
             self.SessionLocal = sessionmaker(
                 autocommit=False,
                 autoflush=False,
-                bind=self.engine
+                bind=self.engine,
             )
-            
+
             logger.info("Veritabanı bağlantısı başarıyla kuruldu")
-            
-        except Exception as e:
-            logger.error(f"Veritabanı bağlantısı kurulamadı: {str(e)}")
+
+        except Exception as exc:  # pragma: no cover - bağlantı hataları
+            logger.error("Veritabanı bağlantısı kurulamadı: %s", exc)
             raise
-    
-    def create_tables(self):
+
+    def create_tables(self) -> None:
         """Tüm tabloları oluşturur."""
         try:
             Base.metadata.create_all(bind=self.engine)
             logger.info("Veritabanı tabloları başarıyla oluşturuldu")
-        except Exception as e:
-            logger.error(f"Tablolar oluşturulamadı: {str(e)}")
+        except Exception as exc:  # pragma: no cover - schema hataları
+            logger.error("Tablolar oluşturulamadı: %s", exc)
             raise
-    
-    def drop_tables(self):
+
+    def drop_tables(self) -> None:
         """Tüm tabloları siler."""
         try:
             Base.metadata.drop_all(bind=self.engine)
             logger.info("Veritabanı tabloları başarıyla silindi")
-        except Exception as e:
-            logger.error(f"Tablolar silinemedi: {str(e)}")
+        except Exception as exc:
+            logger.error("Tablolar silinemedi: %s", exc)
             raise
-    
+
     def get_session(self) -> Session:
         """Yeni bir veritabanı oturumu döndürür."""
+        if self.SessionLocal is None:
+            raise RuntimeError("Database session factory is not initialised")
         return self.SessionLocal()
-    
+
     @contextmanager
     def session_scope(self) -> Generator[Session, None, None]:
-        """
-        Veritabanı oturumu için context manager.
-        Otomatik commit/rollback işlemleri yapar.
-        """
+        """Veritabanı oturumu için context manager."""
         session = self.get_session()
         try:
             yield session
             session.commit()
-        except Exception as e:
+        except Exception as exc:
             session.rollback()
-            logger.error(f"Veritabanı işlemi başarısız: {str(e)}")
+            logger.error("Veritabanı işlemi başarısız: %s", exc)
             raise
         finally:
             session.close()
-    
+
     def test_connection(self) -> bool:
         """Veritabanı bağlantısını test eder."""
+        if self.engine is None:
+            return False
         try:
             with self.engine.connect() as connection:
                 result = connection.execute(text("SELECT 1"))
                 return result.fetchone()[0] == 1
-        except Exception as e:
-            logger.error(f"Veritabanı bağlantı testi başarısız: {str(e)}")
+        except Exception as exc:
+            logger.error("Veritabanı bağlantı testi başarısız: %s", exc)
             return False
-    
-    def close(self):
+
+    def close(self) -> None:
         """Veritabanı bağlantısını kapatır."""
         if self.engine:
             self.engine.dispose()
@@ -120,15 +124,15 @@ class DatabaseManager:
 
 
 # Global veritabanı yöneticisi instance'ı
-db_manager = None
+_db_manager: DatabaseManager | None = None
 
 
 def get_db_manager() -> DatabaseManager:
     """Global veritabanı yöneticisini döndürür."""
-    global db_manager
-    if db_manager is None:
-        db_manager = DatabaseManager()
-    return db_manager
+    global _db_manager
+    if _db_manager is None:
+        _db_manager = DatabaseManager()
+    return _db_manager
 
 
 def get_db_session() -> Session:
@@ -143,33 +147,37 @@ def get_db_session_context() -> Generator[Session, None, None]:
         yield session
 
 
-def init_database():
+def get_db_session_dependency() -> Iterator[Session]:
+    """FastAPI bağımlılığı için oturum sağlayıcı."""
+    session = get_db_manager().get_session()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+def init_database() -> None:
     """Veritabanını başlatır ve tabloları oluşturur."""
     manager = get_db_manager()
-    
-    # Bağlantıyı test et
+
     if not manager.test_connection():
         raise ConnectionError("Veritabanına bağlanılamadı")
-    
-    # Tabloları oluştur
+
     manager.create_tables()
-    
     logger.info("Veritabanı başarıyla başlatıldı")
 
 
-if __name__ == "__main__":
-    # Test için
+if __name__ == "__main__":  # pragma: no cover - manuel testler
     logging.basicConfig(level=logging.INFO)
-    
+
     try:
         init_database()
         print("Veritabanı başarıyla başlatıldı!")
-        
-        # Bağlantı testi
+
         with get_db_session_context() as session:
             result = session.execute(text("SELECT COUNT(*) FROM teams"))
             count = result.fetchone()[0]
             print(f"Teams tablosunda {count} kayıt var")
-            
-    except Exception as e:
-        print(f"Hata: {str(e)}")
+
+    except Exception as exc:  # pragma: no cover - manuel testler
+        print(f"Hata: {exc}")

@@ -10,6 +10,7 @@ Bu proje, [FBRef](https://fbref.com) sitesinden futbolcu verilerini otomatik ola
 - **Modüler Yapı**: Genişletilebilir ve sürdürülebilir kod yapısı
 - **Loglama**: Detaylı işlem kayıtları
 - **Konfigürasyon**: Esnek çevre değişkeni yönetimi
+- **Modern UI**: Ant Design bileşenleriyle hazırlanmış React dashboard
 
 ## 📊 Çekilen Veriler
 
@@ -46,17 +47,24 @@ cp .env.example .env
 
 3. **Docker ile çalıştırın:**
 ```bash
-# Tüm servisleri başlat
+# Tüm servisleri başlat (PostgreSQL + API + React arayüzü)
 docker-compose up -d
 
-# Sadece uygulama ve veritabanı
-docker-compose up -d postgres fbref-scraper
+# Sadece API ve veritabanı servisleri
+docker-compose up -d postgres backend
 ```
 
 4. **Logları kontrol edin:**
 ```bash
-docker-compose logs -f fbref-scraper
+docker-compose logs -f backend
 ```
+
+5. **Web arayüzünü açın:**
+```
+http://localhost:5173
+```
+
+API servisleri varsayılan olarak `http://localhost:8000` adresinden erişilebilir.
 
 ## 🎯 Kullanım
 
@@ -65,25 +73,25 @@ docker-compose logs -f fbref-scraper
 #### Test Modu (Varsayılan)
 Tek takım için test çalıştırır:
 ```bash
-docker-compose up fbref-scraper
+docker-compose run --rm backend python main.py --mode test
 ```
 
 #### Tam Pipeline
 Tüm ligler için veri çeker:
 ```bash
-docker-compose run --rm fbref-scraper --mode full
+docker-compose run --rm backend python main.py --mode full
 ```
 
 #### Tek Takım
 Belirli bir takım için veri çeker:
 ```bash
-docker-compose run --rm fbref-scraper --mode team --team-url "https://fbref.com/en/squads/18bb7c10/Arsenal-Stats"
+docker-compose run --rm backend python main.py --mode team --team-url "https://fbref.com/en/squads/18bb7c10/Arsenal-Stats"
 ```
 
 #### Özel Sezon
 Farklı sezon için:
 ```bash
-docker-compose run --rm fbref-scraper --mode full --season "2023-2024"
+docker-compose run --rm backend python main.py --mode full --season "2023-2024"
 ```
 
 ### Yerel Çalıştırma

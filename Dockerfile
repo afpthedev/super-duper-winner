@@ -63,15 +63,12 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 RUN chown -R appuser:appuser /app
 USER appuser
 
-# Port açma (eğer web arayüzü eklenirse)
+# Port açma (API servisi)
 EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "from src.database.connection import get_db_manager; print('OK' if get_db_manager().test_connection() else exit(1))"
 
-# Varsayılan komut
-CMD ["python", "main.py", "--mode", "test"]
-
-# Alternatif komutlar için entry point
-ENTRYPOINT ["python", "main.py"]
+# Varsayılan komut API sunucusunu çalıştırır
+CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
