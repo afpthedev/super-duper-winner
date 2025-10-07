@@ -1,0 +1,127 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Veritabanı
+  postgres:
+    image: postgres:15-alpine
+    container_name: fbref_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fbref_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - fbref_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fbref_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # FBRef Scraper Uygulaması
+  fbref-scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fbref_scraper
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Veritabanı bağlantı ayarları
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: fbref_db
+      DB_USER: postgres
+      DB_PASSWORD: password
+      DB_ECHO: "false"
+      
+      # Scraping ayarları
+      SCRAPING_DELAY: 2.0
+      SCRAPING_MAX_RETRIES: 3
+      SCRAPING_TIMEOUT: 30
+      SCRAPING_HEADLESS: "true"
+      
+      # Uygulama ayarları
+      DEBUG: "false"
+      ENVIRONMENT: production
+      LOG_LEVEL: INFO
+      
+      # Chrome ayarları (Docker için)
+      DISPLAY: ":99"
+      CHROME_BIN: /usr/bin/google-chrome
+      CHROME_PATH: /usr/bin/google-chrome
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    networks:
+      - fbref_network
+    # Varsayılan olarak test modunda çalışır
+    command: ["--mode", "test"]
+    
+    # Alternatif komutlar:
+    # Tüm ligler için: ["--mode", "full"]
+    # Tek takım için: ["--mode", "team", "--team-url", "https://fbref.com/en/squads/18bb7c10/Arsenal-Stats"]
+
+  # pgAdmin (Opsiyonel - Veritabanı yönetimi için)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: fbref_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@fbref.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "8080:80"
+    networks:
+      - fbref_network
+    depends_on:
+      - postgres
+    profiles:
+      - admin  # Bu profil ile çalıştırmak için: docker-compose --profile admin up
+
+  # Redis (Gelecekte cache için kullanılabilir)
+  redis:
+    image: redis:7-alpine
+    container_name: fbref_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - fbref_network
+    profiles:
+      - cache
+
+# Ağ tanımlaması
+networks:
+  fbref_network:
+    driver: bridge
+    name: fbref_network
+
+# Volume tanımlamaları
+volumes:
+  postgres_data:
+    driver: local
+    name: fbref_postgres_data
+  
+  pgadmin_data:
+    driver: local
+    name: fbref_pgadmin_data
+  
+  redis_data:
+    driver: local
+    name: fbref_redis_data

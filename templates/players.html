@@ -1,0 +1,334 @@
+{% extends "base.html" %}
+
+{% block title %}Oyuncular - FBRef Veri Yönetimi{% endblock %}
+
+{% block page_title %}Oyuncular{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group">
+    <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#filterModal">
+        <i class="fas fa-filter me-2"></i>
+        Filtrele
+    </button>
+    <button class="btn btn-primary" onclick="exportPlayers()">
+        <i class="fas fa-download me-2"></i>
+        Dışa Aktar
+    </button>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Search and Filter Bar -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" class="row g-3">
+            <div class="col-md-4">
+                <label for="search" class="form-label">Oyuncu Ara</label>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="fas fa-search"></i></span>
+                    <input type="text" class="form-control" id="search" name="search" 
+                           value="{{ search }}" placeholder="Ad veya soyad...">
+                </div>
+            </div>
+            <div class="col-md-3">
+                <label for="team" class="form-label">Takım</label>
+                <select class="form-select" id="team" name="team">
+                    <option value="">Tüm Takımlar</option>
+                    {% for team in teams %}
+                    <option value="{{ team.name }}" {% if team_filter == team.name %}selected{% endif %}>
+                        {{ team.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label for="position" class="form-label">Pozisyon</label>
+                <select class="form-select" id="position" name="position">
+                    <option value="">Tüm Pozisyonlar</option>
+                    {% for pos in positions %}
+                    <option value="{{ pos }}" {% if position_filter == pos %}selected{% endif %}>
+                        {{ pos }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary w-100">
+                    <i class="fas fa-search me-2"></i>
+                    Ara
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Results Summary -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h5 class="mb-0">
+            Toplam {{ total }} oyuncu bulundu
+            {% if search or team_filter or position_filter %}
+                <small class="text-muted">
+                    (filtrelenmiş)
+                    <a href="{{ url_for('players') }}" class="btn btn-sm btn-outline-secondary ms-2">
+                        <i class="fas fa-times me-1"></i>
+                        Filtreleri Temizle
+                    </a>
+                </small>
+            {% endif %}
+        </h5>
+    </div>
+    <div>
+        <small class="text-muted">
+            Sayfa {{ page }} / {{ (total // 20) + (1 if total % 20 > 0 else 0) }}
+        </small>
+    </div>
+</div>
+
+<!-- Players Table -->
+<div class="card">
+    <div class="card-body p-0">
+        {% if players %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Oyuncu</th>
+                        <th>Pozisyon</th>
+                        <th>Yaş</th>
+                        <th>Uyruk</th>
+                        <th>Takım</th>
+                        <th>Eklenme Tarihi</th>
+                        <th>İşlemler</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for player in players %}
+                    <tr>
+                        <td>
+                            <div class="d-flex align-items-center">
+                                <div class="avatar-sm bg-primary rounded-circle d-flex align-items-center justify-content-center me-3">
+                                    <i class="fas fa-user text-white"></i>
+                                </div>
+                                <div>
+                                    <strong>{{ player.name }} {{ player.surname }}</strong>
+                                    {% if player.fbref_id %}
+                                        <br><small class="text-muted">ID: {{ player.fbref_id[:8] }}...</small>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            {% if player.position %}
+                                <span class="badge bg-secondary">{{ player.position }}</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ player.age or '-' }}</td>
+                        <td>
+                            {% if player.nationality %}
+                                <span class="fi fi-{{ player.nationality.lower() if player.nationality|length == 2 else '' }}"></span>
+                                {{ player.nationality }}
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if player.current_team %}
+                                <a href="{{ url_for('team_detail', team_id=player.current_team.id) }}" 
+                                   class="text-decoration-none">
+                                    <span class="badge bg-info">{{ player.current_team.name }}</span>
+                                </a>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <small class="text-muted">
+                                {{ player.created_at.strftime('%d.%m.%Y') if player.created_at else '-' }}
+                            </small>
+                        </td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <a href="{{ url_for('player_detail', player_id=player.id) }}" 
+                                   class="btn btn-outline-primary" title="Detayları Görüntüle">
+                                    <i class="fas fa-eye"></i>
+                                </a>
+                                {% if player.fbref_url %}
+                                <a href="{{ player.fbref_url }}" target="_blank" 
+                                   class="btn btn-outline-secondary" title="FBRef'te Aç">
+                                    <i class="fas fa-external-link-alt"></i>
+                                </a>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination -->
+        {% if has_prev or has_next %}
+        <div class="card-footer">
+            <nav aria-label="Sayfa navigasyonu">
+                <ul class="pagination justify-content-center mb-0">
+                    {% if has_prev %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('players', page=page-1, search=search, team=team_filter, position=position_filter) }}">
+                            <i class="fas fa-chevron-left"></i>
+                        </a>
+                    </li>
+                    {% endif %}
+                    
+                    <li class="page-item active">
+                        <span class="page-link">{{ page }}</span>
+                    </li>
+                    
+                    {% if has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('players', page=page+1, search=search, team=team_filter, position=position_filter) }}">
+                            <i class="fas fa-chevron-right"></i>
+                        </a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+        
+        {% else %}
+        <div class="text-center py-5">
+            <i class="fas fa-users fa-4x text-muted mb-4"></i>
+            <h4 class="text-muted">Oyuncu bulunamadı</h4>
+            <p class="text-muted mb-4">
+                {% if search or team_filter or position_filter %}
+                    Arama kriterlerinize uygun oyuncu bulunamadı.
+                {% else %}
+                    Henüz hiç oyuncu verisi yok.
+                {% endif %}
+            </p>
+            {% if not (search or team_filter or position_filter) %}
+            <a href="{{ url_for('scraping') }}" class="btn btn-primary">
+                <i class="fas fa-download me-2"></i>
+                Veri Çekmeye Başla
+            </a>
+            {% else %}
+            <a href="{{ url_for('players') }}" class="btn btn-outline-primary">
+                <i class="fas fa-times me-2"></i>
+                Filtreleri Temizle
+            </a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Filter Modal -->
+<div class="modal fade" id="filterModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-filter me-2"></i>
+                    Gelişmiş Filtreler
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="advancedFilterForm">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Yaş Aralığı</label>
+                            <div class="row">
+                                <div class="col-6">
+                                    <input type="number" class="form-control" placeholder="Min yaş" min="16" max="45">
+                                </div>
+                                <div class="col-6">
+                                    <input type="number" class="form-control" placeholder="Max yaş" min="16" max="45">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Uyruk</label>
+                            <input type="text" class="form-control" placeholder="Ülke kodu (örn: TR, EN)">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Sıralama</label>
+                            <select class="form-select">
+                                <option value="name">Ada göre</option>
+                                <option value="age">Yaşa göre</option>
+                                <option value="created_at">Eklenme tarihine göre</option>
+                            </select>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary" onclick="applyAdvancedFilter()">
+                    Filtrele
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function exportPlayers() {
+    // Simple CSV export functionality
+    const params = new URLSearchParams(window.location.search);
+    params.set('export', 'csv');
+    
+    const exportUrl = '/api/players?' + params.toString();
+    
+    // Create temporary link and trigger download
+    const link = document.createElement('a');
+    link.href = exportUrl;
+    link.download = 'oyuncular.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+function applyAdvancedFilter() {
+    // This would implement advanced filtering
+    // For now, just close the modal
+    const modal = bootstrap.Modal.getInstance(document.getElementById('filterModal'));
+    modal.hide();
+    
+    // Show info message
+    showAlert('Gelişmiş filtreler yakında eklenecek!', 'info');
+}
+
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        <i class="fas fa-info-circle me-2"></i>
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    const container = document.querySelector('main');
+    const firstChild = container.firstElementChild;
+    container.insertBefore(alertDiv, firstChild);
+    
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 3000);
+}
+
+// Auto-submit search form on Enter
+document.getElementById('search').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        this.form.submit();
+    }
+});
+</script>
+{% endblock %}

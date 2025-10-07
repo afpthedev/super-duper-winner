@@ -1,0 +1,57 @@
+# Web scraping
+selenium==4.15.2
+beautifulsoup4==4.12.2
+requests==2.31.0
+lxml==4.9.3
+
+# Data processing - using pre-compiled versions for Windows compatibility
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Database
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+alembic==1.12.1
+
+# Configuration and environment
+python-dotenv==1.0.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Logging and monitoring
+structlog==23.2.0
+
+# HTTP client improvements
+httpx==0.25.2
+
+# Date and time handling
+python-dateutil==2.8.2
+
+# Development and testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.11.0
+flake8==6.1.0
+mypy==1.7.1
+
+# Docker health checks
+psutil==5.9.6
+
+# Async support (if needed)
+asyncio==3.4.3
+aiohttp==3.9.1
+
+# Data validation
+marshmallow==3.20.1
+
+# CLI interface (optional)
+click==8.1.7
+
+# Progress bars
+tqdm==4.66.1
+
+# Retry mechanisms
+tenacity==8.2.3
+
+# JSON handling improvements
+orjson==3.9.10
